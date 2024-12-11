@@ -3,7 +3,7 @@
 Plugin Name: WAEBRO Notif - Whatsapp Email Broadcast and Woocommerce Whatsapp Notification
 Plugin URI: https://whacenter.com
 Description: WAEBRO Notif is a WordPress plugin that functions to send broadcast messages in the form of WhatsApp messages and email messages. Additionally, it can also send WhatsApp notification messages when there is a change in the order status in WooCommerce.
-Version: 1.1
+Version: 1.2
 Author: Adikiss
 Author URI: https://adikiss.net
 */
@@ -186,6 +186,35 @@ function whatsapp_broadcast_settings_menu_page() {
     </div>
     <?php
 }
+
+//admin number
+add_action('admin_init', function() {
+    // Pengaturan lain sudah ada sebelumnya...
+    register_setting('wa_broadcast_woo_triggers_group', 'wa_broadcast_woo_admin_number', [
+        'type' => 'string',
+        'sanitize_callback' => 'sanitize_text_field',
+        'default' => ''
+    ]);
+    register_setting('wa_broadcast_woo_triggers_group', 'wa_broadcast_woo_admin_new_order_message', [
+        'type' => 'string',
+        'sanitize_callback' => 'wp_kses_post',
+        'default' => 'New order {order_id} from {name}, total {order_total}, items: {order_items}.'
+    ]);
+
+    add_settings_field('woo_admin_number', 'Admin WhatsApp Number', function(){
+        $val = get_option('wa_broadcast_woo_admin_number', '');
+        echo '<input type="text" name="wa_broadcast_woo_admin_number" value="'.esc_attr($val).'" class="regular-text">';
+        echo '<p class="description">Enter the admin WhatsApp number in international format (e.g. +628xxxxxx).</p>';
+    }, 'wa_broadcast_woo_triggers', 'wa_broadcast_woo_triggers_section');
+
+    add_settings_field('woo_admin_new_order_msg', 'Admin New Order Message', function(){
+        $val = get_option('wa_broadcast_woo_admin_new_order_message', 'New order {order_id} from {name}, total {order_total}, items: {order_items}.');
+        echo '<textarea name="wa_broadcast_woo_admin_new_order_message" rows="5" class="large-text">'.esc_textarea($val).'</textarea>';
+        echo '<p class="description">Variables: {name}, {number}, {email}, {order_id}, {order_status}, {order_total}, {order_items}, {payment_method}</p>';
+    }, 'wa_broadcast_woo_triggers', 'wa_broadcast_woo_triggers_section');
+});
+
+
 // WooCommerce triggers
 add_action('admin_init', function() {
     register_setting('wa_broadcast_woo_triggers_group', 'wa_broadcast_woo_new_order_message');
@@ -787,15 +816,74 @@ function whatsapp_broadcast_settings_page() {
 }
 // Hook yang sudah ada untuk order baru:
 add_action('woocommerce_thankyou', 'whatsapp_broadcast_woo_order_created', 10, 1);
+
 function whatsapp_broadcast_woo_order_created($order_id) {
     if (!$order_id) return;
     $order = wc_get_order($order_id);
     if (!$order) return;
 
+    // Pesan ke pelanggan:
     $message_template = get_option('wa_broadcast_woo_new_order_message', '');
-    if (empty($message_template)) return;
+    if (!empty($message_template)) {
+        whatsapp_broadcast_woo_send_whatsapp($order, $message_template);
+    }
 
-    whatsapp_broadcast_woo_send_whatsapp($order, $message_template);
+    // Pesan ke admin:
+    $admin_number = get_option('wa_broadcast_woo_admin_number', '');
+    $admin_template = get_option('wa_broadcast_woo_admin_new_order_message', '');
+    if (!empty($admin_number) && !empty($admin_template)) {
+        whatsapp_broadcast_woo_send_whatsapp_admin($order, $admin_template, $admin_number);
+    }
+}
+function whatsapp_broadcast_woo_send_whatsapp_admin($order, $template, $admin_number, $status='') {
+    global $wpdb;
+    $log_table = $wpdb->prefix.'whatsapp_logs';
+
+    $billing_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();
+    $billing_phone = $order->get_billing_phone();
+    $billing_email = $order->get_billing_email();
+    $order_id = $order->get_id();
+    $order_status = $status ?: $order->get_status();
+
+    $order_total = $order->get_total();
+    $order_total = number_format($order_total, 0, ',', '.');
+
+    $items = [];
+    foreach ($order->get_items() as $item) {
+        $items[] = $item->get_name() . ' x' . $item->get_quantity();
+    }
+    $order_items = implode(', ', $items);
+
+    $payment_method = $order->get_payment_method_title();
+
+    $device = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}whatsapp_devices LIMIT 1");
+    if (!$device) return;
+
+    $replacements = [
+        '{name}' => $billing_name,
+        '{number}' => $billing_phone,
+        '{email}' => $billing_email,
+        '{order_id}' => $order_id,
+        '{order_status}' => $order_status,
+        '{order_total}' => $order_total,
+        '{order_items}' => $order_items,
+        '{payment_method}' => $payment_method
+    ];
+    $personalized_message = str_replace(array_keys($replacements), array_values($replacements), $template);
+
+    $ok = whatsapp_broadcast_send_whatsapp($device->device_id, $admin_number, $personalized_message);
+    $status_sent = $ok ? 'Sent' : 'Failed';
+
+    $wpdb->insert($log_table, [
+        'channel' => 'whatsapp',
+        'contact_name' => $billing_name,
+        'whatsapp_number' => $admin_number, // nomor admin
+        'contact_email' => $billing_email,
+        'email_subject' => NULL,
+        'device_id' => $device->device_id,
+        'message' => $personalized_message,
+        'status' => $status_sent
+    ]);
 }
 
 // Modifikasi di fungsi woocommerce_order_status_changed untuk menambahkan kondisi on-hold
