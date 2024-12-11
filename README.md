@@ -18,7 +18,7 @@ All in one plugin for Broadcast and notification whatsapp
 * Contact Management
 
 Broadcasts are executed using their own cron URL, not wp-cron.php.  
-WhatsApp messages are sent using the Whacenter API, <a ="https://whacenter.com/"></a>
+WhatsApp messages are sent using the Whacenter API, https://whacenter.com/ 
 with the option to add other APIs in the future.  
 Email messages are sent using active SMTP 
 via the `wp_mail()` function, 
