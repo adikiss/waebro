@@ -36,6 +36,14 @@ compatible with any SMTP plugin.
 Contacts can be input manually, 
 retrieved directly from WordPress users, or WooCommerce users.
 
+URL CRON = https://yoururl.com/wp-json/wa-broadcast/v1/trigger-cron?secret=12345
+
+you can change the secret in menu setting
+
+== Required Plugins ==
+
+* Woocommerce
+* SMTP Plugins
 
 == Installation ==
 
