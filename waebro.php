@@ -3,7 +3,7 @@
 Plugin Name: WAEBRO Notif - Whatsapp Email Broadcast and Woocommerce Whatsapp Notification
 Plugin URI: https://whacenter.com
 Description: WAEBRO Notif is a WordPress plugin that functions to send broadcast messages in the form of WhatsApp messages and email messages. Additionally, it can also send WhatsApp notification messages when there is a change in the order status in WooCommerce.
-Version: 1.0
+Version: 1.1
 Author: Adikiss
 Author URI: https://adikiss.net
 */
