@@ -47,9 +47,13 @@ you can change the secret in menu setting
 To install the plugin, follow the below steps:
 
 Step 1: Log in to your WordPress dashboard. 
+
 Step 2: Navigate to Plugins and select Add New. 
+
 Step 3: Upload plugin file
+
 Step 4: click on “Install Now”.
+
 Step 5: After installation, click “Activate” to activate the plugin. 
 
 
