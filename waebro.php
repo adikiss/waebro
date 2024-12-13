@@ -3,9 +3,10 @@
 Plugin Name: WAEBRO Notif - Whatsapp Email Broadcast and Woocommerce Whatsapp Notification
 Plugin URI: https://whacenter.com
 Description: WAEBRO Notif is a WordPress plugin that functions to send broadcast messages in the form of WhatsApp messages and email messages. Additionally, it can also send WhatsApp notification messages when there is a change in the order status in WooCommerce.
-Version: 1.2
+Version: 1.3
 Author: Adikiss
 Author URI: https://adikiss.net
+Text Domain: waebro
 */
 
 if (!defined('ABSPATH')) {
@@ -152,16 +153,53 @@ add_action('admin_init', function() {
         'wa_broadcast_settings'
     );
 
-    add_settings_field(
-        'wa_broadcast_secret_field',
-        'Secret Code',
-        'wa_broadcast_secret_field_callback',
-        'wa_broadcast_settings',
-        'wa_broadcast_settings_section'
-    );
+   
 });
 
 
+add_action('admin_init', function() {
+    // Setting secret sebelumnya
+    register_setting('wa_broadcast_settings_group', 'wa_broadcast_secret', [
+        'type' => 'string',
+        'sanitize_callback' => 'sanitize_text_field',
+        'default' => ''
+    ]);
+
+    // Tambahkan pengaturan limit WhatsApp & Email
+    register_setting('wa_broadcast_settings_group', 'wa_broadcast_whatsapp_limit', [
+        'type' => 'integer',
+        'sanitize_callback' => 'absint',
+        'default' => 10 // default 10 pesan WA per cron
+    ]);
+
+    register_setting('wa_broadcast_settings_group', 'wa_broadcast_email_limit', [
+        'type' => 'integer',
+        'sanitize_callback' => 'absint',
+        'default' => 10 // default 10 pesan Email per cron
+    ]);
+
+    add_settings_section('wa_broadcast_settings_section', 'WA Broadcast Settings', function(){
+        echo '<p>Set your secret code for the REST API endpoint, and limits for each cron execution.</p>';
+    }, 'wa_broadcast_settings');
+
+    add_settings_field('wa_broadcast_secret_field', 'Secret Code', function(){
+        $secret = get_option('wa_broadcast_secret', '');
+        echo '<input type="text" name="wa_broadcast_secret" value="'.esc_attr($secret).'" class="regular-text">';
+        echo '<p class="description">Use <code>?secret=YOUR_SECRET</code> on the endpoint URL.</p>';
+    }, 'wa_broadcast_settings', 'wa_broadcast_settings_section');
+
+    add_settings_field('wa_broadcast_whatsapp_limit_field', 'WhatsApp Message Limit per Cron', function(){
+        $val = get_option('wa_broadcast_whatsapp_limit', 10);
+        echo '<input type="number" name="wa_broadcast_whatsapp_limit" value="'.intval($val).'" class="small-text" min="1">';
+        echo '<p class="description">Number of WhatsApp messages processed in one cron execution.</p>';
+    }, 'wa_broadcast_settings', 'wa_broadcast_settings_section');
+
+    add_settings_field('wa_broadcast_email_limit_field', 'Email Message Limit per Cron', function(){
+        $val = get_option('wa_broadcast_email_limit', 10);
+        echo '<input type="number" name="wa_broadcast_email_limit" value="'.intval($val).'" class="small-text" min="1">';
+        echo '<p class="description">Number of Email messages processed in one cron execution.</p>';
+    }, 'wa_broadcast_settings', 'wa_broadcast_settings_section');
+});
 
 
 
@@ -293,17 +331,31 @@ function whatsapp_broadcast_trigger_cron_handler(\WP_REST_Request $request) {
     global $wpdb;
     $log_table = $wpdb->prefix . 'whatsapp_logs';
 
+    // Ambil limit
+    $wa_limit = get_option('wa_broadcast_whatsapp_limit', 10);
+    $email_limit = get_option('wa_broadcast_email_limit', 10);
+
+    // Dapatkan semua pesan scheduled
     $scheduled_logs = $wpdb->get_results("SELECT * FROM $log_table WHERE status='Scheduled' ORDER BY id ASC");
+
     if (!$scheduled_logs) {
         return new \WP_REST_Response(['message' => 'No scheduled messages'], 200);
     }
 
-    $result = [];
-    foreach ($scheduled_logs as $log) {
-        $status = 'Failed';
+    // Pisahkan berdasarkan channel
+    $wa_logs = array_filter($scheduled_logs, function($log){ return $log->channel === 'whatsapp'; });
+    $email_logs = array_filter($scheduled_logs, function($log){ return $log->channel === 'email'; });
 
-        // Lakukan substitusi variabel pada $log->message
-        // Variabel yang tersedia: {name}, {number}, {email}
+    // Ambil hanya sesuai limit
+    $wa_logs = array_slice($wa_logs, 0, $wa_limit);
+    $email_logs = array_slice($email_logs, 0, $email_limit);
+
+    // Gabungkan kembali yang akan diproses
+    $logs_to_process = array_merge($wa_logs, $email_logs);
+
+    $result = [];
+    foreach ($logs_to_process as $log) {
+        $status = 'Failed';
         $replacements = [
             '{name}' => $log->contact_name,
             '{number}' => $log->whatsapp_number ?: '',
@@ -314,25 +366,19 @@ function whatsapp_broadcast_trigger_cron_handler(\WP_REST_Request $request) {
         if ($log->channel === 'whatsapp') {
             $ok = whatsapp_broadcast_send_whatsapp($log->device_id, $log->whatsapp_number, $personalized_message);
             $status = $ok ? 'Sent' : 'Failed';
-        }elseif ($log->channel === 'email') {
+        } elseif ($log->channel === 'email') {
             $ok = whatsapp_broadcast_send_email($log->contact_email, $log->email_subject, $personalized_message);
             $status = $ok ? 'Sent' : 'Failed';
         }
 
-        $wpdb->update($log_table, [
-            'status' => $status,
-            'sent_at' => current_time('mysql')
-        ], ['id' => $log->id]);
+        $wpdb->update($log_table, ['status' => $status, 'sent_at' => current_time('mysql')], ['id' => $log->id]);
 
-        $result[] = [
-            'job_id' => $log->job_id,
-            'channel' => $log->channel,
-            'status' => $status
-        ];
+        $result[] = ['job_id' => $log->job_id, 'channel' => $log->channel, 'status' => $status];
     }
 
     return new \WP_REST_Response(['result' => $result], 200);
 }
+
 
 
 function whatsapp_broadcast_send_whatsapp($device_id, $number, $message) {
