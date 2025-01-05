@@ -994,9 +994,8 @@ function whatsapp_broadcast_woo_send_whatsapp($order, $template, $status='') {
     $order_id = $order->get_id();
     $order_status = $status ?: $order->get_status();
 
-    // Dapatkan total numeric saja
-    $order_total = $order->get_total(); // float
-    // Format tanpa desimal, misal Rp60.382 jadi "60.382"
+    $order_total = $order->get_total();
+    // Format numeric
     $order_total = number_format($order_total, 0, ',', '.');
 
     $items = [];
@@ -1005,36 +1004,39 @@ function whatsapp_broadcast_woo_send_whatsapp($order, $template, $status='') {
     }
     $order_items = implode(', ', $items);
 
-    // Dapatkan metode pembayaran
     $payment_method = $order->get_payment_method_title();
 
-    // Ambil device
-    $device = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}whatsapp_devices LIMIT 1");
+    // Dapatkan device (bisa pakai fungsi rotasi device atau device default)
+    $device = whatsapp_broadcast_get_next_device();
     if (!$device) return;
 
+    // Variabel
     $replacements = [
         '{name}' => $billing_name,
         '{number}' => $billing_phone,
         '{email}' => $billing_email,
         '{order_id}' => $order_id,
         '{order_status}' => $order_status,
-        '{order_total}' => $order_total, // sekarang numeric only
+        '{order_total}' => $order_total,
         '{order_items}' => $order_items,
         '{payment_method}' => $payment_method
     ];
     $personalized_message = str_replace(array_keys($replacements), array_values($replacements), $template);
 
+    // Kirim
     $ok = whatsapp_broadcast_send_whatsapp($device->device_id, $billing_phone, $personalized_message);
     $status_sent = $ok ? 'Sent' : 'Failed';
 
+    // Log
     $wpdb->insert($log_table, [
-        'channel'=>'whatsapp',
-        'contact_name'=>$billing_name,
-        'whatsapp_number'=>$billing_phone,
-        'contact_email'=>$billing_email,
-        'email_subject'=>NULL,
-        'device_id'=>$device->device_id,
-        'message'=>$personalized_message,
-        'status'=>$status_sent
+        'channel' => 'whatsapp',
+        'contact_name' => $billing_name,
+        'whatsapp_number' => $billing_phone,
+        'contact_email' => $billing_email,
+        'email_subject' => NULL,
+        'device_id' => $device->device_id,
+        'message' => $personalized_message,
+        'status' => $status_sent
     ]);
 }
+
