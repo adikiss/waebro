@@ -3,7 +3,7 @@
 Plugin Name: WAEBRO Notif - Whatsapp Email Broadcast and Woocommerce Whatsapp Notification
 Plugin URI: https://whacenter.com
 Description: WAEBRO Notif is a WordPress plugin that functions to send broadcast messages in the form of WhatsApp messages and email messages. Additionally, it can also send WhatsApp notification messages when there is a change in the order status in WooCommerce.
-Version: 1.3
+Version: 1.4
 Author: Adikiss
 Author URI: https://adikiss.net
 Text Domain: waebro
@@ -259,8 +259,8 @@ add_action('admin_init', function() {
     register_setting('wa_broadcast_woo_triggers_group', 'wa_broadcast_woo_status_processing_message');
     register_setting('wa_broadcast_woo_triggers_group', 'wa_broadcast_woo_status_completed_message');
     register_setting('wa_broadcast_woo_triggers_group', 'wa_broadcast_woo_status_failed_message');
-    // Daftarkan juga pesan on-hold:
     register_setting('wa_broadcast_woo_triggers_group', 'wa_broadcast_woo_status_on_hold_message');
+	register_setting('wa_broadcast_woo_triggers_group', 'wa_broadcast_woo_status_pending_message');
 
     add_settings_section('wa_broadcast_woo_triggers_section', 'WooCommerce WhatsApp Triggers', function(){
         echo '<p>Set template messages for WooCommerce events.<br>Variables: {name}, {number}, {email}, {order_id}, {order_status}, {order_total}, {order_items}, {payment_method}</p>';
@@ -295,6 +295,19 @@ add_action('admin_init', function() {
         $val = get_option('wa_broadcast_woo_status_on_hold_message', 'Hi {name}, your order {order_id} is now on hold. Please complete the payment.');
         echo '<textarea name="wa_broadcast_woo_status_on_hold_message" rows="5" class="large-text">'.esc_textarea($val).'</textarea>';
     }, 'wa_broadcast_woo_triggers', 'wa_broadcast_woo_triggers_section');
+	
+	add_settings_field(
+        'woo_pending_msg',
+        'Order Pending Payment Message',
+        function() {
+            $val = get_option('wa_broadcast_woo_status_pending_message', 'Hi {name}, your order {order_id} is now pending payment. Please complete the payment as soon as possible.');
+            echo '<textarea name="wa_broadcast_woo_status_pending_message" rows="5" class="large-text">'.esc_textarea($val).'</textarea>';
+            echo '<p class="description">Variables: {name}, {number}, {email}, {order_id}, {order_status}, {order_total}, {order_items}, {payment_method}</p>';
+        },
+        'wa_broadcast_woo_triggers',
+        'wa_broadcast_woo_triggers_section'
+    );
+	
 });
 function whatsapp_broadcast_woo_triggers_page() {
     ?>
@@ -932,7 +945,7 @@ function whatsapp_broadcast_woo_send_whatsapp_admin($order, $template, $admin_nu
     ]);
 }
 
-// Modifikasi di fungsi woocommerce_order_status_changed untuk menambahkan kondisi on-hold
+
 add_action('woocommerce_order_status_changed', 'whatsapp_broadcast_woo_order_status_changed', 10, 4);
 function whatsapp_broadcast_woo_order_status_changed($order_id, $old_status, $new_status, $order) {
     $option_key = '';
@@ -944,6 +957,8 @@ function whatsapp_broadcast_woo_order_status_changed($order_id, $old_status, $ne
         $option_key = 'wa_broadcast_woo_status_failed_message';
     } elseif ($new_status === 'on-hold') { // Tambahkan kondisi untuk on-hold
         $option_key = 'wa_broadcast_woo_status_on_hold_message';
+	} elseif ($new_status === 'pending') { // inilah status pending payment
+        $option_key = 'wa_broadcast_woo_status_pending_message';
     } else {
         return; // Tidak kirim pesan jika status lainnya
     }
@@ -952,6 +967,17 @@ function whatsapp_broadcast_woo_order_status_changed($order_id, $old_status, $ne
     if (empty($message_template)) return;
 
     whatsapp_broadcast_woo_send_whatsapp($order, $message_template, $new_status);
+}
+// Tambahkan template 'wa_broadcast_woo_status_pending_message' di pengaturan
+// Lalu hook seperti ini:
+add_action('woocommerce_checkout_order_processed', 'wa_broadcast_pending_notification', 10, 3);
+function wa_broadcast_pending_notification($order_id, $posted_data, $order) {
+    if ($order->has_status('pending')) {
+        $template = get_option('wa_broadcast_woo_status_pending_message', '');
+        if ($template) {
+            whatsapp_broadcast_woo_send_whatsapp($order, $template, 'pending');
+        }
+    }
 }
 
 function whatsapp_broadcast_woo_send_whatsapp($order, $template, $status='') {
