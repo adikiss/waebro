@@ -296,6 +296,31 @@ add_action('admin_init', function() {
         echo '<textarea name="wa_broadcast_woo_status_on_hold_message" rows="5" class="large-text">'.esc_textarea($val).'</textarea>';
     }, 'wa_broadcast_woo_triggers', 'wa_broadcast_woo_triggers_section');
 });
+
+add_action('admin_init', function() {
+    // Pengaturan lain seperti new_order, processing, dsb...
+
+    // Tambahkan setting untuk pending payment
+    register_setting('wa_broadcast_woo_triggers_group', 'wa_broadcast_woo_status_pending_message', [
+        'type' => 'string',
+        'sanitize_callback' => 'wp_kses_post',
+        'default' => 'Hi {name}, your order {order_id} is now pending payment. Please complete the payment as soon as possible.'
+    ]);
+
+    // Pastikan ada section "wa_broadcast_woo_triggers_section" sudah dibuat
+    add_settings_field(
+        'woo_pending_msg',
+        'Order Pending Payment Message',
+        function() {
+            $val = get_option('wa_broadcast_woo_status_pending_message', 'Hi {name}, your order {order_id} is now pending payment. Please complete the payment as soon as possible.');
+            echo '<textarea name="wa_broadcast_woo_status_pending_message" rows="5" class="large-text">'.esc_textarea($val).'</textarea>';
+            echo '<p class="description">Variables: {name}, {number}, {email}, {order_id}, {order_status}, {order_total}, {order_items}, {payment_method}</p>';
+        },
+        'wa_broadcast_woo_triggers',
+        'wa_broadcast_woo_triggers_section'
+    );
+});
+
 function whatsapp_broadcast_woo_triggers_page() {
     ?>
     <div class="wrap">
@@ -936,23 +961,28 @@ function whatsapp_broadcast_woo_send_whatsapp_admin($order, $template, $admin_nu
 add_action('woocommerce_order_status_changed', 'whatsapp_broadcast_woo_order_status_changed', 10, 4);
 function whatsapp_broadcast_woo_order_status_changed($order_id, $old_status, $new_status, $order) {
     $option_key = '';
+
     if ($new_status === 'processing') {
         $option_key = 'wa_broadcast_woo_status_processing_message';
     } elseif ($new_status === 'completed') {
         $option_key = 'wa_broadcast_woo_status_completed_message';
     } elseif ($new_status === 'failed') {
         $option_key = 'wa_broadcast_woo_status_failed_message';
-    } elseif ($new_status === 'on-hold') { // Tambahkan kondisi untuk on-hold
+    } elseif ($new_status === 'on-hold') {
         $option_key = 'wa_broadcast_woo_status_on_hold_message';
+    } elseif ($new_status === 'pending') { // inilah status pending payment
+        $option_key = 'wa_broadcast_woo_status_pending_message';
     } else {
-        return; // Tidak kirim pesan jika status lainnya
+        return; // Status lain tidak kita tangani
     }
 
     $message_template = get_option($option_key, '');
     if (empty($message_template)) return;
 
+    // Panggil fungsi kirim WhatsApp seperti biasa
     whatsapp_broadcast_woo_send_whatsapp($order, $message_template, $new_status);
 }
+
 
 function whatsapp_broadcast_woo_send_whatsapp($order, $template, $status='') {
     global $wpdb;
